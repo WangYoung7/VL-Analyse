@@ -20,6 +20,7 @@ class VLClassifier:
         if ext == '.png': return 'image/png'
         if ext in ['.jpg', '.jpeg']: return 'image/jpeg'
         if ext == '.webp': return 'image/webp'
+        if ext == '.bmp': return 'image/bmp'
         return 'image/jpeg' # fallback
 
     def _encode_image(self, image_path):

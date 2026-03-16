@@ -3,7 +3,7 @@ import argparse
 from vl_classifier import VLClassifier
 
 def list_image_files(directory):
-    valid_extensions = ('.jpg', '.jpeg', '.png', '.webp')
+    valid_extensions = ('.jpg', '.jpeg', '.png', '.webp', '.bmp')
     return [os.path.join(directory, f) for f in os.listdir(directory)
             if f.lower().endswith(valid_extensions)]
 
