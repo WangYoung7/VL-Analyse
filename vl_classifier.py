@@ -14,30 +14,44 @@ class VLClassifier:
         self.model = model
         self.category_summaries = {}
 
+    def _get_mime_type(self, image_path):
+        """Simple mime type detection based on extension."""
+        ext = os.path.splitext(image_path)[1].lower()
+        if ext == '.png': return 'image/png'
+        if ext in ['.jpg', '.jpeg']: return 'image/jpeg'
+        if ext == '.webp': return 'image/webp'
+        return 'image/jpeg' # fallback
+
     def _encode_image(self, image_path):
         """Encodes an image to base64 string."""
         try:
             with open(image_path, "rb") as image_file:
-                return base64.b64encode(image_file.read()).decode('utf-8')
+                encoded_string = base64.b64encode(image_file.read()).decode('utf-8')
+                mime_type = self._get_mime_type(image_path)
+                return f"data:{mime_type};base64,{encoded_string}"
         except Exception as e:
             print(f"Error encoding image {image_path}: {e}")
             return None
 
-    def learn_category(self, category_name, image_paths):
+    def learn_category(self, category_name, image_paths, max_images=10):
         """
         Summarizes features of multiple images for a specific category.
         """
         print(f"Learning category: {category_name}...")
         content = [{"type": "text", "text": f"These are multiple images of '{category_name}'. Please summarize the common visual characteristics and defining features of this category in detail. This summary will be used as reference for future classification."}]
 
-        for path in image_paths:
-            base64_image = self._encode_image(path)
-            if base64_image:
-                # SiliconFlow/OpenAI format for base64 images
+        # Limit the number of images to avoid context window issues
+        selected_images = image_paths[:max_images]
+        if len(image_paths) > max_images:
+            print(f"Notice: Only using the first {max_images} images for training.")
+
+        for path in selected_images:
+            data_url = self._encode_image(path)
+            if data_url:
                 content.append({
                     "type": "image_url",
                     "image_url": {
-                        "url": f"data:image/jpeg;base64,{base64_image}"
+                        "url": data_url
                     }
                 })
             else:
@@ -81,8 +95,8 @@ class VLClassifier:
             return "No categories learned yet. Please run learn_category first or load experience."
 
         print(f"Classifying image: {image_path}...")
-        base64_image = self._encode_image(image_path)
-        if not base64_image:
+        data_url = self._encode_image(image_path)
+        if not data_url:
             return "Failed to encode image."
 
         # Build the learned knowledge context
@@ -112,7 +126,7 @@ Also provide a brief explanation for your judgment.
                             {
                                 "type": "image_url",
                                 "image_url": {
-                                    "url": f"data:image/jpeg;base64,{base64_image}"
+                                    "url": data_url
                                 }
                             }
                         ]
