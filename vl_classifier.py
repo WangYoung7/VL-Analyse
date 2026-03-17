@@ -5,14 +5,16 @@ from openai import OpenAI
 
 class VLClassifier:
     def __init__(self, api_key=None, base_url="https://api.siliconflow.cn/v1", model="Qwen/Qwen2-VL-72B-Instruct"):
-        # If api_key is not provided, try to get it from environment variable
+        # 如果未提供 api_key，尝试从环境变量获取
         self.api_key = api_key or os.getenv("SILICONFLOW_API_KEY")
         if not self.api_key:
-            raise ValueError("API Key is required. Please provide it or set SILICONFLOW_API_KEY environment variable.")
+            raise ValueError("需要 API Key。请提供它或设置 SILICONFLOW_API_KEY 环境变量。")
 
         self.client = OpenAI(api_key=self.api_key, base_url=base_url)
         self.model = model
-        self.category_summaries = {}
+        # 结构：{category_name: {"summary": str, "manual": str}}
+        self.experience_data = {}
+        self.differences_analysis = ""
 
     def _get_mime_type(self, image_path):
         """Simple mime type detection based on extension."""
@@ -69,51 +71,110 @@ class VLClassifier:
         )
 
         summary = response.choices[0].message.content
-        self.category_summaries[category_name] = summary
-        print(f"Summary for {category_name} completed.")
+        if category_name not in self.experience_data:
+            self.experience_data[category_name] = {"summary": "", "manual": ""}
+        self.experience_data[category_name]["summary"] = summary
+        print(f"{category_name} 的总结经验值已生成。")
         return summary
 
+    def update_manual_experience(self, category_name, manual_text):
+        """更新人为经验值。"""
+        if category_name not in self.experience_data:
+            self.experience_data[category_name] = {"summary": "", "manual": ""}
+        self.experience_data[category_name]["manual"] = manual_text
+        print(f"{category_name} 的人为经验值已更新。")
+
+    def analyze_category_differences(self):
+        """分析已学习类别之间的区别。"""
+        if len(self.experience_data) < 2:
+            return "至少需要两个类别才能进行区别分析。"
+
+        print("正在分析各类别之间的区别...")
+        context = ""
+        for name, data in self.experience_data.items():
+            context += f"类别: {name}\n特征总结: {data['summary']}\n人为经验: {data['manual']}\n\n"
+
+        prompt = f"""
+以下是已学习的多个类别的特征数据：
+
+{context}
+
+请对比这些类别，详细分析它们之间的主要区别、容易混淆的点以及各自的独特标识特征。
+请用中文回答，并以清晰的条目形式列出。
+"""
+        response = self.client.chat.completions.create(
+            model=self.model,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        self.differences_analysis = response.choices[0].message.content
+        return self.differences_analysis
+
     def save_experience(self, filepath="experience.json"):
-        """将学习到的总结（经验值）保存到本地 JSON 文件。"""
+        """将学习到的经验数据（总结和人为）保存到本地 JSON 文件。"""
+        data_to_save = {
+            "experience": self.experience_data,
+            "analysis": self.differences_analysis
+        }
         with open(filepath, "w", encoding="utf-8") as f:
-            json.dump(self.category_summaries, f, ensure_ascii=False, indent=4)
-        print(f"经验值已保存至 {filepath}")
+            json.dump(data_to_save, f, ensure_ascii=False, indent=4)
+        print(f"所有经验数据已保存至 {filepath}")
 
     def load_experience(self, filepath="experience.json"):
-        """从本地 JSON 文件加载学习到的总结。"""
+        """从本地 JSON 文件加载经验数据。"""
         if os.path.exists(filepath):
             with open(filepath, "r", encoding="utf-8") as f:
-                self.category_summaries = json.load(f)
-            print(f"经验值已从 {filepath} 加载")
+                data = json.load(f)
+                # 兼容旧版本格式
+                if "experience" in data:
+                    self.experience_data = data["experience"]
+                    self.differences_analysis = data.get("analysis", "")
+                else:
+                    # 转换旧格式
+                    self.experience_data = {k: {"summary": v, "manual": ""} for k, v in data.items()}
+            print(f"经验数据已从 {filepath} 加载")
         else:
             print(f"未找到文件: {filepath}")
 
     def classify_image(self, image_path):
         """
-        根据学习到的类别总结对新图像进行分类。
+        根据学习到的类别经验（总结+人为）对新图像进行分类。
         """
-        if not self.category_summaries:
-            return "尚未学习任何类别。请先运行 learn_category 或加载经验值。"
+        if not self.experience_data:
+            return "尚未学习任何类别。请先运行学习程序或加载经验值。"
 
         print(f"正在对图像进行分类: {image_path}...")
         data_url = self._encode_image(image_path)
         if not data_url:
             return "图像编码失败。"
 
-        # 构建学习到的知识上下文
+        # 构建知识上下文
         knowledge_context = ""
-        for name, summary in self.category_summaries.items():
-            knowledge_context += f"--- 类别: {name} ---\n特征总结: {summary}\n\n"
+        for name, data in self.experience_data.items():
+            knowledge_context += f"--- 类别: {name} ---\n"
+            knowledge_context += f"[总结经验值]: {data['summary']}\n"
+            knowledge_context += f"[人为经验值]: {data['manual'] if data['manual'] else '无'}\n\n"
+
+        if self.differences_analysis:
+            knowledge_context += f"--- 类别间区别分析 ---\n{self.differences_analysis}\n\n"
 
         prompt = f"""
-你是一位专业的图像分类专家。基于以下各类别已学习到的“经验值”（特征总结）：
+你是一位专业的图像分类专家。请基于以下提供的参考资料对图像进行判断。
 
+【参考资料】
 {knowledge_context}
 
-请分析提供的图像，并判断它属于哪个类别。
-如果它匹配其中一个类别，请输出该【类别名称】。
-如果它不匹配任何已知类别，请输出“未知”。
-同时请简要说明你的判断理由。请用中文回答。
+【判定原则】
+1. 请同时参考[总结经验值]和[人为经验值]。
+2. 在进行最终决策时，[总结经验值]的影响权重占比50%，[人为经验值]的影响权重占比50%。
+3. 如果提供了[类别间区别分析]，请务必结合该分析来排除混淆项。
+
+【任务】
+请分析提供的图像，判断它属于哪个类别。
+- 如果匹配，输出【类别名称】。
+- 如果不匹配任何已知类别，输出“未知”。
+- 请详细说明判断理由，并指出[总结经验值]和[人为经验值]分别是如何影响你的判断的。
+
+请用中文回答。
 """
 
         try:
