@@ -23,11 +23,13 @@ def main():
         print("\n" + "="*40)
         print("   硅基流动 VL 图像分类交互工具")
         print("="*40)
-        print("1. 从数据集文件夹学习特征")
-        print("2. 对单张图像进行分类")
-        print("3. 保存经验值到本地")
-        print("4. 从本地加载经验值")
-        print("5. 查看已学习的类别")
+        print("1. 从数据集文件夹学习总结特征")
+        print("2. 输入/更新人为经验值")
+        print("3. 分析类别间区别")
+        print("4. 对单张图像进行分类")
+        print("5. 保存所有经验数据到本地")
+        print("6. 从本地加载经验数据")
+        print("7. 查看当前经验数据")
         print("q. 退出")
 
         choice = input("\n请选择操作: ").strip().lower()
@@ -54,6 +56,30 @@ def main():
                     print(f"在 {folder} 中未找到图片")
 
         elif choice == '2':
+            if not classifier.experience_data:
+                print("请先通过选项1学习类别，或通过选项6加载经验数据。")
+                continue
+            print("\n当前类别列表:")
+            cats = list(classifier.experience_data.keys())
+            for i, cat in enumerate(cats):
+                print(f"{i+1}. {cat}")
+
+            try:
+                idx = int(input("请选择要更新人为经验的类别编号: ")) - 1
+                if 0 <= idx < len(cats):
+                    cat_name = cats[idx]
+                    manual_text = input(f"请输入对 '{cat_name}' 的人为经验描述: ").strip()
+                    classifier.update_manual_experience(cat_name, manual_text)
+                else:
+                    print("编号无效。")
+            except ValueError:
+                print("请输入有效的数字。")
+
+        elif choice == '3':
+            result = classifier.analyze_category_differences()
+            print(f"\n类别间区别分析:\n{result}")
+
+        elif choice == '4':
             img_path = input("请输入要分类的图像路径: ").strip()
             if os.path.exists(img_path):
                 result = classifier.classify_image(img_path)
@@ -61,19 +87,24 @@ def main():
             else:
                 print("找不到该文件。")
 
-        elif choice == '3':
+        elif choice == '5':
             path = input("请输入保存文件名 (默认: experience.json): ").strip() or "experience.json"
             classifier.save_experience(path)
 
-        elif choice == '4':
+        elif choice == '6':
             path = input("请输入加载文件名 (默认: experience.json): ").strip() or "experience.json"
             classifier.load_experience(path)
 
-        elif choice == '5':
-            if classifier.category_summaries:
-                print("\n已学习的类别:")
-                for cat in classifier.category_summaries.keys():
-                    print(f"- {cat}")
+        elif choice == '7':
+            if classifier.experience_data:
+                print("\n" + "-"*20)
+                for cat, data in classifier.experience_data.items():
+                    print(f"类别: {cat}")
+                    print(f"  [总结经验]: {data['summary'][:100]}..." if data['summary'] else "  [总结经验]: 无")
+                    print(f"  [人为经验]: {data['manual']}" if data['manual'] else "  [人为经验]: 无")
+                if classifier.differences_analysis:
+                    print(f"\n[类别间区别分析]:\n{classifier.differences_analysis[:200]}...")
+                print("-"*20)
             else:
                 print("尚未学习任何类别。")
 
