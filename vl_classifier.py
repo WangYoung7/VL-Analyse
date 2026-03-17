@@ -4,7 +4,8 @@ import os
 from openai import OpenAI
 
 class VLClassifier:
-    def __init__(self, api_key=None, base_url="https://api.siliconflow.cn/v1", model="Qwen/Qwen2-VL-72B-Instruct"):
+    def __init__(self, api_key=None, base_url="https://api.siliconflow.cn/v1",
+                 model="Qwen/Qwen2-VL-72B-Instruct", storage_dir="vl_experience", save_enabled=1):
         # 如果未提供 api_key，尝试从环境变量获取
         self.api_key = api_key or os.getenv("SILICONFLOW_API_KEY")
         if not self.api_key:
@@ -12,6 +13,12 @@ class VLClassifier:
 
         self.client = OpenAI(api_key=self.api_key, base_url=base_url)
         self.model = model
+        self.storage_dir = storage_dir
+        self.save_enabled = save_enabled  # 1 为保存，0 为不保存
+
+        if not os.path.exists(self.storage_dir):
+            os.makedirs(self.storage_dir)
+
         # 结构：{category_name: {"summary": str, "manual": str}}
         self.experience_data = {}
         self.differences_analysis = ""
@@ -37,37 +44,22 @@ class VLClassifier:
             return None
 
     def learn_category(self, category_name, image_paths, max_images=10):
-        """
-        总结特定类别的多张图像特征。
-        """
+        """总结特定类别的多张图像特征。"""
         print(f"正在学习类别: {category_name}...")
         content = [{"type": "text", "text": f"这些是'{category_name}'类别的多张图片。请详细总结该类别的共同视觉特征和定义性特征。该总结将作为未来图像分类的参考经验值。请用中文回答。"}]
 
-        # 限制图像数量以避免超出上下文窗口
         selected_images = image_paths[:max_images]
-        if len(image_paths) > max_images:
-            print(f"注意：仅使用前 {max_images} 张图片进行训练。")
-
         for path in selected_images:
             data_url = self._encode_image(path)
             if data_url:
-                content.append({
-                    "type": "image_url",
-                    "image_url": {
-                        "url": data_url
-                    }
-                })
-            else:
-                print(f"跳过无法编码的图像: {path}")
+                content.append({"type": "image_url", "image_url": {"url": data_url}})
 
         if len(content) == 1:
             return "没有提供有效的图像进行学习。"
 
         response = self.client.chat.completions.create(
             model=self.model,
-            messages=[
-                {"role": "user", "content": content}
-            ]
+            messages=[{"role": "user", "content": content}]
         )
 
         summary = response.choices[0].message.content
@@ -75,6 +67,7 @@ class VLClassifier:
             self.experience_data[category_name] = {"summary": "", "manual": ""}
         self.experience_data[category_name]["summary"] = summary
         print(f"{category_name} 的总结经验值已生成。")
+        self._auto_save()
         return summary
 
     def update_manual_experience(self, category_name, manual_text):
@@ -83,6 +76,7 @@ class VLClassifier:
             self.experience_data[category_name] = {"summary": "", "manual": ""}
         self.experience_data[category_name]["manual"] = manual_text
         print(f"{category_name} 的人为经验值已更新。")
+        self._auto_save()
 
     def analyze_category_differences(self):
         """分析已学习类别之间的区别。"""
@@ -107,33 +101,39 @@ class VLClassifier:
             messages=[{"role": "user", "content": prompt}]
         )
         self.differences_analysis = response.choices[0].message.content
+        self._auto_save()
         return self.differences_analysis
 
-    def save_experience(self, filepath="experience.json"):
-        """将学习到的经验数据（总结和人为）保存到本地 JSON 文件。"""
+    def _auto_save(self):
+        """内部自动保存方法。"""
+        if self.save_enabled == 1:
+            self.save_experience()
+
+    def save_experience(self):
+        """将学习到的经验数据保存到本地存储目录。"""
+        filepath = os.path.join(self.storage_dir, "experience_data.json")
         data_to_save = {
             "experience": self.experience_data,
             "analysis": self.differences_analysis
         }
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(data_to_save, f, ensure_ascii=False, indent=4)
-        print(f"所有经验数据已保存至 {filepath}")
+        print(f"数据已自动保存至 {filepath}")
 
-    def load_experience(self, filepath="experience.json"):
-        """从本地 JSON 文件加载经验数据。"""
+    def load_experience(self):
+        """从本地存储目录加载经验数据。"""
+        filepath = os.path.join(self.storage_dir, "experience_data.json")
         if os.path.exists(filepath):
             with open(filepath, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                # 兼容旧版本格式
                 if "experience" in data:
                     self.experience_data = data["experience"]
                     self.differences_analysis = data.get("analysis", "")
                 else:
-                    # 转换旧格式
                     self.experience_data = {k: {"summary": v, "manual": ""} for k, v in data.items()}
-            print(f"经验数据已从 {filepath} 加载")
+            print(f"已从 {filepath} 恢复经验数据")
         else:
-            print(f"未找到文件: {filepath}")
+            print("未发现本地经验数据，将开始全新学习。")
 
     def classify_image(self, image_path):
         """
