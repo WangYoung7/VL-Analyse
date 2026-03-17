@@ -36,15 +36,15 @@ class VLClassifier:
 
     def learn_category(self, category_name, image_paths, max_images=10):
         """
-        Summarizes features of multiple images for a specific category.
+        总结特定类别的多张图像特征。
         """
-        print(f"Learning category: {category_name}...")
-        content = [{"type": "text", "text": f"These are multiple images of '{category_name}'. Please summarize the common visual characteristics and defining features of this category in detail. This summary will be used as reference for future classification."}]
+        print(f"正在学习类别: {category_name}...")
+        content = [{"type": "text", "text": f"这些是'{category_name}'类别的多张图片。请详细总结该类别的共同视觉特征和定义性特征。该总结将作为未来图像分类的参考经验值。请用中文回答。"}]
 
-        # Limit the number of images to avoid context window issues
+        # 限制图像数量以避免超出上下文窗口
         selected_images = image_paths[:max_images]
         if len(image_paths) > max_images:
-            print(f"Notice: Only using the first {max_images} images for training.")
+            print(f"注意：仅使用前 {max_images} 张图片进行训练。")
 
         for path in selected_images:
             data_url = self._encode_image(path)
@@ -56,10 +56,10 @@ class VLClassifier:
                     }
                 })
             else:
-                print(f"Skipping {path} due to encoding error.")
+                print(f"跳过无法编码的图像: {path}")
 
         if len(content) == 1:
-            return "No valid images provided for learning."
+            return "没有提供有效的图像进行学习。"
 
         response = self.client.chat.completions.create(
             model=self.model,
@@ -74,46 +74,46 @@ class VLClassifier:
         return summary
 
     def save_experience(self, filepath="experience.json"):
-        """Saves learned summaries (experience values) to a JSON file."""
+        """将学习到的总结（经验值）保存到本地 JSON 文件。"""
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(self.category_summaries, f, ensure_ascii=False, indent=4)
-        print(f"Experience values saved to {filepath}")
+        print(f"经验值已保存至 {filepath}")
 
     def load_experience(self, filepath="experience.json"):
-        """Loads learned summaries from a JSON file."""
+        """从本地 JSON 文件加载学习到的总结。"""
         if os.path.exists(filepath):
             with open(filepath, "r", encoding="utf-8") as f:
                 self.category_summaries = json.load(f)
-            print(f"Experience values loaded from {filepath}")
+            print(f"经验值已从 {filepath} 加载")
         else:
-            print(f"File {filepath} not found.")
+            print(f"未找到文件: {filepath}")
 
     def classify_image(self, image_path):
         """
-        Classifies a new image based on learned category summaries.
+        根据学习到的类别总结对新图像进行分类。
         """
         if not self.category_summaries:
-            return "No categories learned yet. Please run learn_category first or load experience."
+            return "尚未学习任何类别。请先运行 learn_category 或加载经验值。"
 
-        print(f"Classifying image: {image_path}...")
+        print(f"正在对图像进行分类: {image_path}...")
         data_url = self._encode_image(image_path)
         if not data_url:
-            return "Failed to encode image."
+            return "图像编码失败。"
 
-        # Build the learned knowledge context
+        # 构建学习到的知识上下文
         knowledge_context = ""
         for name, summary in self.category_summaries.items():
-            knowledge_context += f"--- Category: {name} ---\nCharacteristics: {summary}\n\n"
+            knowledge_context += f"--- 类别: {name} ---\n特征总结: {summary}\n\n"
 
         prompt = f"""
-You are an expert image classifier. Based on the following 'experience values' (learned characteristics) of different categories:
+你是一位专业的图像分类专家。基于以下各类别已学习到的“经验值”（特征总结）：
 
 {knowledge_context}
 
-Please analyze the provided image and determine which category it belongs to.
-If it matches one of the categories, output the Category Name.
-If it doesn't match any, output 'Unknown'.
-Also provide a brief explanation for your judgment.
+请分析提供的图像，并判断它属于哪个类别。
+如果它匹配其中一个类别，请输出该【类别名称】。
+如果它不匹配任何已知类别，请输出“未知”。
+同时请简要说明你的判断理由。请用中文回答。
 """
 
         try:
